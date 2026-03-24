@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Sirio.AI Multi-Chat + Feedback</title>
+<link rel="manifest" href="manifest.json">
+<script>
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js')
+  .then(()=>console.log("Service Worker registrato"))
+  .catch(err=>console.log("Errore SW", err));
+}
+</script>
+<style>
+body { margin:0; font-family:Arial; background:#0f172a; color:white; display:flex; flex-direction:column; height:100vh;}
+header { background:red; padding:10px; display:flex; align-items:center; justify-content:space-between;}
+header img { height:50px; border-radius:10px; margin-right:10px;}
+#menuBtn { font-size:24px; cursor:pointer;}
+#chatDropdown { display:none; position:absolute; top:70px; right:10px; background:#111827; border:1px solid red; border-radius:5px; z-index:10; min-width:150px;}
+.chat-item { padding:10px; cursor:pointer; border-bottom:1px solid #222;}
+.chat-item:hover { background:darkred;}
+#chat { flex:1; overflow-y:auto; padding:10px;}
+.msg { margin:10px 0; padding:10px; border-radius:10px; max-width:70%;}
+.user { background:black; margin-left:auto; }
+.bot { background:red; margin-right:auto; }
+#inputBox { display:flex; padding:10px; background:red;}
+input { flex:1; padding:10px; border:none; border-radius:5px;}
+button { margin-left:10px; padding:10px; background:black; color:white; border:none; border-radius:5px; cursor:pointer;}
+#feedbackPage { display:none; flex-direction:column; padding:10px; flex:1; overflow-y:auto;}
+#feedbackPage textarea { width:100%; height:100px; margin-top:10px; border-radius:5px; border:none; padding:5px;}
+.feedback-item { background:#222; padding:10px; margin:5px 0; border-radius:5px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;">
+    <img src="https://i.ibb.co/CKKDwvXP/WA-1774212361949.jpg">
+    Sirio.AI
+  </div>
+  <div>
+    <span id="menuBtn">⋮</span>
+    <div id="chatDropdown"></div>
+  </div>
+</header>
+
+<div id="chat"></div>
+
+<div id="inputBox">
+  <input id="input" placeholder="Scrivi qualcosa..." />
+  <button id="sendBtn">Invia</button>
+</div>
+
+<div id="feedbackPage">
+  <h2>Feedback</h2>
+  <label>Voto: </label>
+  <select id="rating">
+    <option value="1">1 ⭐</option>
+    <option value="2">2 ⭐⭐</option>
+    <option value="3">3 ⭐⭐⭐</option>
+    <option value="4">4 ⭐⭐⭐⭐</option>
+    <option value="5">5 ⭐⭐⭐⭐⭐</option>
+  </select>
+  <textarea id="feedbackText" placeholder="Scrivi qui il tuo feedback..."></textarea>
+  <button id="sendFeedback">Invia Feedback</button>
+  <h3>Feedback ricevuti:</h3>
+  <div id="feedbackList"></div>
+</div>
+
+<script>
+const chatDiv = document.getElementById("chat");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("sendBtn");
+const menuBtn = document.getElementById("menuBtn");
+const chatDropdown = document.getElementById("chatDropdown");
+const feedbackPage = document.getElementById("feedbackPage");
+const ratingSelect = document.getElementById("rating");
+const feedbackText = document.getElementById("feedbackText");
+const sendFeedback = document.getElementById("sendFeedback");
+const feedbackList = document.getElementById("feedbackList");
+
+let chats = JSON.parse(localStorage.getItem("sirioChats")) || {};
+let memory = JSON.parse(localStorage.getItem("sirioMemory")) || {};
+let currentChat = null;
+let feedbacks = JSON.parse(localStorage.getItem("sirioFeedbacks")) || [];
+
+function newChat(name = "Chat " + (Object.keys(chats).length + 1)) {
+  const id = "chat_" + Date.now();
+  chats[id] = [];
+  currentChat = id;
+  saveChats();
+  renderDropdown();
+  loadChat();
+}
+function saveChats(){localStorage.setItem("sirioChats", JSON.stringify(chats));}
+function saveMemory(){localStorage.setItem("sirioMemory", JSON.stringify(memory));}
+function saveFeedbacks(){localStorage.setItem("sirioFeedbacks", JSON.stringify(feedbacks));}
+
+function renderDropdown(){
+  chatDropdown.innerHTML="";
+  for(let id in chats){
+    const div=document.createElement("div");
+    div.className="chat-item";
+    div.innerText=id;
+    div.onclick=()=>{currentChat=id;loadChat();chatDropdown.style.display="none";feedbackPage.style.display="none"; chatDiv.style.display="block"; inputBox.style.display="flex";};
+    chatDropdown.appendChild(div);
+  }
+  const addNew=document.createElement("div");
+  addNew.className="chat-item"; addNew.innerText="➕ Nuova chat";
+  addNew.onclick=()=>{newChat(); chatDropdown.style.display="none"; feedbackPage.style.display="none"; chatDiv.style.display="block"; inputBox.style.display="flex";};
+  chatDropdown.appendChild(addNew);
+  const feedbackBtn=document.createElement("div");
+  feedbackBtn.className="chat-item"; feedbackBtn.innerText="📝 Feedback";
+  feedbackBtn.onclick=()=>{chatDiv.style.display="none"; inputBox.style.display="none"; feedbackPage.style.display="flex"; chatDropdown.style.display="none"; renderFeedbacks();};
+  chatDropdown.appendChild(feedbackBtn);
+}
+
+menuBtn.onclick=()=>{chatDropdown.style.display = chatDropdown.style.display==="block"?"none":"block";}
+
+function loadChat(){ chatDiv.innerHTML=""; if(!currentChat) return; chats[currentChat].forEach(m=>addMessage(m.text,m.type)); }
+function addMessage(text,type){ const div=document.createElement("div"); div.className="msg "+type; div.innerText=text; chatDiv.appendChild(div); chatDiv.scrollTop=chatDiv.scrollHeight; }
+
+function fakeAIResponse(inputText){
+  let input = inputText.toLowerCase().trim();
+  function containsAny(arr){return arr.some(w=>input.includes(w));}
+  if(input.includes("mi chiamo")){let name=input.split("mi chiamo")[1].trim(); memory.name=name; saveMemory(); return "Piacere "+name+" 😄! Raccontami di te!";}
+  if(containsAny(["nome","chiamo"])) if(memory.name) return "Tu ti chiami "+memory.name+" 😎, giusto?";
+  if(containsAny(["creatore","chi ti ha creato"])) return "Il mio creatore è Davide Mascia con l'aiuto di ChatGPT 🤖🔥";
+  if(containsAny(["ciao","hey","salve"])) return "Ciao "+(memory.name||"")+" 😄! Come va oggi?";
+  if(containsAny(["demon slayer","tanjiro","nezuko","makomo"])) return "Demon Slayer segue Tanjiro che cerca di salvare sua sorella Nezuko diventata demone. Incontra altri cacciatori di demoni e cresce come guerriero. Makomo è un mentore che aiuta i nuovi cacciatori.";
+  if(containsAny(["attack on titan","eren","mikasa","armin"])) return "Attack on Titan mostra l’umanità sotto attacco dei Titani. Eren, Mikasa e Armin cercano di scoprire la verità e proteggere la gente.";
+  if(containsAny(["death note","light","ryuk","misa"])) return "Death Note racconta di Light Yagami, che trova un quaderno mortale e cerca di creare un mondo ideale mentre il detective L lo affronta.";
+  if(containsAny(["hell's paradise","gabimaru","yuji","saiwa"])) return "Hell's Paradise segue Gabimaru, ninja condannato, in una missione per l’elisir di immortalità tra pericoli e compagni complessi.";
+  if(containsAny(["brawl stars"])) return "Brawl Stars è un gioco multiplayer d’azione con personaggi unici e battaglie rapide.";
+  if(containsAny(["genshin","genshin impact"])) return "Genshin Impact è un RPG open-world dove esplori, combatti e costruisci la tua squadra ideale.";
+  return "Interessante 🤔! Raccontami di più su anime, videogiochi o altro!";
+}
+
+sendBtn.onclick=sendMessage;
+input.addEventListener("keydown",e=>{if(e.key==="Enter") sendMessage();});
+function sendMessage(){
+  if(!currentChat)newChat();
+  const text=input.value.trim(); if(!text) return;
+  chats[currentChat].push({text,type:"user"});
+  const response=fakeAIResponse(text);
+  chats[currentChat].push({text:response,type:"bot"});
+  saveChats(); loadChat(); input.value="";
+}
+
+sendFeedback.onclick=()=>{
+  const r=ratingSelect.value; const t=feedbackText.value.trim();
+  if(!t){ alert("Scrivi un feedback!"); return;}
+  feedbacks.push({rating:r,text:t}); saveFeedbacks();
+  feedbackText.value=""; ratingSelect.value="5"; renderFeedbacks();
+}
+function renderFeedbacks(){ feedbackList.innerHTML=""; feedbacks.forEach(f=>{ const div=document.createElement("div"); div.className="feedback-item"; div.innerText=`${f.rating} ⭐ - ${f.text}`; feedbackList.appendChild(div); }); }
+
+if(Object.keys(chats).length===0)newChat();
+else{currentChat=Object.keys(chats)[0]; renderDropdown(); loadChat();}
+renderDropdown();
+</script>
+
+</body>
+</html>
