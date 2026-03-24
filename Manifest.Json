@@ -1,0 +1,15 @@
+{
+  "name": "Sirio.AI",
+  "short_name": "SirioAI",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "red",
+  "icons": [
+    {
+      "src": "https://i.ibb.co/CKKDwvXP/WA-1774212361949.jpg",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
